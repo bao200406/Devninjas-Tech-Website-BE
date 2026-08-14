@@ -158,6 +158,7 @@ export const handleChangePassword = async (req, res) => {
 };
 
 export const googleLogin = async (req, res) => {
+  console.log("Mã code nhận từ frontend:", req.body.code);
   try {
     const { code } = req.body;
 
