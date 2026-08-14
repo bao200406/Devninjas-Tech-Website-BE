@@ -284,3 +284,67 @@ export const changePassword = async (userId, oldPassword, newPassword) => {
 
   return { message: "Đổi mật khẩu thành công." };
 };
+
+// --- BỔ SUNG: Xử lý đăng nhập bằng Google OAuth ---
+export const googleLogin = async (googleUserData) => {
+  const { email, name, googleId, picture } = googleUserData;
+
+  if (!email) {
+    throw new Error("Không thể lấy thông tin email từ tài khoản Google");
+  }
+
+  // 1. Tìm user theo email hoặc googleId
+  let user = await User.findOne({ $or: [{ email }, { googleId }] });
+
+  // 2. Nếu chưa tồn tại -> Tạo user mới tự động
+  if (!user) {
+    user = await User.create({
+      name: name || "Google User",
+      email,
+      googleId,
+      avatar: picture || "",
+      // Không cần password vì dùng Google OAuth (Schema đã cấu hình bỏ qua required nếu có googleId)
+    });
+  } else if (!user.googleId) {
+    // Nếu trước đó user đăng ký bằng form thường (trùng email), nay đăng nhập Google thì liên kết luôn googleId và avatar nếu chưa có
+    user.googleId = googleId;
+    if (!user.avatar && picture) user.avatar = picture;
+    await user.save();
+  }
+
+  // 3. Kiểm tra trạng thái Block (đồng bộ với hàm login thông thường)
+  if (user.status === 'block') {
+    throw new Error("Tài khoản của bạn đã bị khóa, vui lòng liên hệ Admin!");
+  }
+
+  // 4. Tạo JWT access token (giống step 7 của hàm login)
+  const accessToken = jwt.sign(
+    {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+    },
+    process.env.JWT_SECRET || "secret_key",
+    { expiresIn: "1h" },
+  );
+
+  // 5. Tạo refresh token (giống step 8 của hàm login)
+  const refreshToken = jwt.sign(
+    {
+      id: user._id,
+    },
+    process.env.REFRESH_SECRET || "refresh_secret_key",
+    { expiresIn: "2d" },
+  );
+
+  // 6. Lưu refresh token vào db (giống step 9 của hàm login)
+  user.refreshToken = refreshToken;
+  await user.save();
+
+  // 7. Ẩn mật khẩu trước khi trả về
+  const userResult = user.toObject();
+  userResult.password = undefined;
+
+  // 8. Trả về cấu trúc đồng bộ với hàm login chuẩn
+  return { user: userResult, accessToken, refreshToken };
+};

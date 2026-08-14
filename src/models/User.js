@@ -13,6 +13,8 @@ const userSchema = new mongoose.Schema(
       unique: true,
     },
 
+    googleId: String,
+
     phone: {
       type: Number,
     },
@@ -33,9 +35,13 @@ const userSchema = new mongoose.Schema(
       default: "", // Có thể để chuỗi trống hoặc gán link ảnh mặc định nếu muốn
     },
 
+    // --- ĐIỀU CHỈNH QUAN TRỌNG TẠI ĐÂY ---
     password: {
       type: String,
-      required: true,
+      required: function() {
+        // Chỉ bắt buộc nhập password nếu user KHÔNG đăng nhập bằng Google (không có googleId)
+        return !this.googleId;
+      },
     },
 
     role: {

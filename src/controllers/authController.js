@@ -156,3 +156,40 @@ export const handleChangePassword = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+export const googleLogin = async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ success: false, message: "Thiếu mã code Google" });
+    }
+
+    const result = await authService.googleLogin(code);
+
+    res.cookie("refreshToken", result.refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    res.cookie("accessToken", result.accessToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      maxAge: 60 * 60 * 1000,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Đăng nhập Google thành công",
+      data: { user: result.user, accessToken: result.accessToken },
+    });
+  } catch (error) {
+    if (error.message.includes("khóa") || error.message.includes("block")) {
+      return res.status(403).json({ success: false, message: error.message });
+    }
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
