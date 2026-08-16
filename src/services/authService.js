@@ -2,6 +2,7 @@ import User from "../models/User.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import axios from 'axios'; // Đảm bảo backend đã cài axios
 import { sendEmail } from "../utils/sendEmail.js";
 
 export const register = async (data) => {
@@ -286,38 +287,136 @@ export const changePassword = async (userId, oldPassword, newPassword) => {
 };
 
 // --- BỔ SUNG: Xử lý đăng nhập bằng Google OAuth ---
-export const googleLogin = async (googleUserData) => {
-  const { email, name, googleId, picture } = googleUserData;
+// export const googleLogin = async (googleUserData) => {
+//   const { email, name, googleId, picture } = googleUserData;
+
+//   if (!email) {
+//     throw new Error("Không thể lấy thông tin email từ tài khoản Google");
+//   }
+
+//   // 1. Tìm user theo email hoặc googleId
+//   let user = await User.findOne({ $or: [{ email }, { googleId }] });
+
+//   // 2. Nếu chưa tồn tại -> Tạo user mới tự động
+//   if (!user) {
+//     user = await User.create({
+//       name: name || "Google User",
+//       email,
+//       googleId,
+//       avatar: picture || "",
+//       // Không cần password vì dùng Google OAuth (Schema đã cấu hình bỏ qua required nếu có googleId)
+//     });
+//   } else if (!user.googleId) {
+//     // Nếu trước đó user đăng ký bằng form thường (trùng email), nay đăng nhập Google thì liên kết luôn googleId và avatar nếu chưa có
+//     user.googleId = googleId;
+//     if (!user.avatar && picture) user.avatar = picture;
+//     await user.save();
+//   }
+
+//   // 3. Kiểm tra trạng thái Block (đồng bộ với hàm login thông thường)
+//   if (user.status === 'block') {
+//     throw new Error("Tài khoản của bạn đã bị khóa, vui lòng liên hệ Admin!");
+//   }
+
+//   // 4. Tạo JWT access token (giống step 7 của hàm login)
+//   const accessToken = jwt.sign(
+//     {
+//       id: user._id,
+//       email: user.email,
+//       role: user.role,
+//     },
+//     process.env.JWT_SECRET || "secret_key",
+//     { expiresIn: "1h" },
+//   );
+
+//   // 5. Tạo refresh token (giống step 8 của hàm login)
+//   const refreshToken = jwt.sign(
+//     {
+//       id: user._id,
+//     },
+//     process.env.REFRESH_SECRET || "refresh_secret_key",
+//     { expiresIn: "2d" },
+//   );
+
+//   // 6. Lưu refresh token vào db (giống step 9 của hàm login)
+//   user.refreshToken = refreshToken;
+//   await user.save();
+
+//   // 7. Ẩn mật khẩu trước khi trả về
+//   const userResult = user.toObject();
+//   userResult.password = undefined;
+
+//   // 8. Trả về cấu trúc đồng bộ với hàm login chuẩn
+//   return { user: userResult, accessToken, refreshToken };
+// };
+
+export const googleLogin = async (code) => {
+  // 1. Dùng mã code đổi lấy Access Token từ Google
+  let tokenData;
+  try {
+    const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      // Lưu ý: redirect_uri ở đây phải khớp hoàn toàn với redirect_uri bên phía Frontend gửi lên Google
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/login",
+      grant_type: 'authorization_code',
+    });
+    tokenData = tokenResponse.data;
+  } catch (error) {
+    console.error("❌ Lỗi đổi code lấy token từ Google:", error.response?.data || error.message);
+    throw new Error("Mã xác thực Google không hợp lệ hoặc đã hết hạn");
+  }
+
+  const googleAccessToken = tokenData.access_token;
+  if (!googleAccessToken) {
+    throw new Error("Không thể lấy access token từ Google");
+  }
+
+  // 2. Dùng Access Token vừa nhận để gọi lấy thông tin profile của User từ Google
+  let googleUserData;
+  try {
+    const userRes = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: {
+        Authorization: `Bearer ${googleAccessToken}`,
+      },
+    });
+    googleUserData = userRes.data;
+  } catch (error) {
+    console.error("❌ Lỗi lấy thông tin user từ Google:", error.response?.data || error.message);
+    throw new Error("Không thể lấy thông tin từ tài khoản Google");
+  }
+
+  const { email, name, sub: googleId, picture } = googleUserData;
 
   if (!email) {
     throw new Error("Không thể lấy thông tin email từ tài khoản Google");
   }
 
-  // 1. Tìm user theo email hoặc googleId
+  // 3. Tìm user theo email hoặc googleId trong Database
   let user = await User.findOne({ $or: [{ email }, { googleId }] });
 
-  // 2. Nếu chưa tồn tại -> Tạo user mới tự động
+  // 4. Nếu chưa tồn tại -> Tạo user mới tự động
   if (!user) {
     user = await User.create({
       name: name || "Google User",
       email,
       googleId,
       avatar: picture || "",
-      // Không cần password vì dùng Google OAuth (Schema đã cấu hình bỏ qua required nếu có googleId)
     });
   } else if (!user.googleId) {
-    // Nếu trước đó user đăng ký bằng form thường (trùng email), nay đăng nhập Google thì liên kết luôn googleId và avatar nếu chưa có
+    // Nếu trước đó user đăng ký bằng form thường (trùng email), nay đăng nhập Google thì liên kết luôn
     user.googleId = googleId;
     if (!user.avatar && picture) user.avatar = picture;
     await user.save();
   }
 
-  // 3. Kiểm tra trạng thái Block (đồng bộ với hàm login thông thường)
+  // 5. Kiểm tra trạng thái Block
   if (user.status === 'block') {
     throw new Error("Tài khoản của bạn đã bị khóa, vui lòng liên hệ Admin!");
   }
 
-  // 4. Tạo JWT access token (giống step 7 của hàm login)
+  // 6. Tạo JWT access token
   const accessToken = jwt.sign(
     {
       id: user._id,
@@ -328,7 +427,7 @@ export const googleLogin = async (googleUserData) => {
     { expiresIn: "1h" },
   );
 
-  // 5. Tạo refresh token (giống step 8 của hàm login)
+  // 7. Tạo refresh token
   const refreshToken = jwt.sign(
     {
       id: user._id,
@@ -337,14 +436,14 @@ export const googleLogin = async (googleUserData) => {
     { expiresIn: "2d" },
   );
 
-  // 6. Lưu refresh token vào db (giống step 9 của hàm login)
+  // 8. Lưu refresh token vào db
   user.refreshToken = refreshToken;
   await user.save();
 
-  // 7. Ẩn mật khẩu trước khi trả về
+  // 9. Ẩn mật khẩu trước khi trả về
   const userResult = user.toObject();
   userResult.password = undefined;
 
-  // 8. Trả về cấu trúc đồng bộ với hàm login chuẩn
+  // 10. Trả về kết quả
   return { user: userResult, accessToken, refreshToken };
 };
