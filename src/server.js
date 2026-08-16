@@ -42,7 +42,7 @@ const app = express();
 // middleware
 // Danh sách các nguồn được phép gọi API
 const allowedOrigins = [
-  "https://devninjas-tech-website-fe-be-five.vercel.app", // Domain trên Vercel
+  "https://devninjas-tech-website-fe.vercel.app", // Domain trên Vercel
   "http://localhost:3000",                                // Chạy ở local (Next.js thường là 3000)
   "http://localhost:3001",                                // Đề phòng chạy port khác
 ];
