@@ -69,78 +69,193 @@ import mongoose from "mongoose";
 //   return order;
 // };
 
-export const createOrderFromCart = async (userId, orderData) => {
-  const { receiverName, receiverPhone, receiverEmail, province, ward, address, paymentMethod, voucherId } = orderData;
+// export const createOrderFromCart = async (userId, orderData) => {
+//   const { receiverName, receiverPhone, receiverEmail, province, ward, address, paymentMethod, voucherId } = orderData;
   
-  // 1. Lấy giỏ hàng và populate SÂU để lấy tên sản phẩm
-  const cartItems = await Cart.find({ userId }).populate({
-    path: "variantId",
-    populate: { path: "productId", select: "name" }
-  });
+//   // 1. Lấy giỏ hàng và populate SÂU để lấy tên sản phẩm
+//   const cartItems = await Cart.find({ userId }).populate({
+//     path: "variantId",
+//     populate: { path: "productId", select: "name" }
+//   });
 
-  if (!cartItems.length) throw new Error("Giỏ hàng trống");
+//   if (!cartItems.length) throw new Error("Giỏ hàng trống");
 
-  // 2. Validate tồn kho
-  await stockService.validateCartStock(cartItems);
+//   // 2. Validate tồn kho
+//   await stockService.validateCartStock(cartItems);
+
+//   let subTotal = 0;
+//   const orderItems = [];
+
+//   // 3. Reserve stock & Build orderItems
+//   for (const item of cartItems) {
+//     const variant = item.variantId;
+    
+//     // Reserve stock từng item
+//     await inventoryService.reserveStock(variant._id, item.quantity);
+
+//     subTotal += variant.price * item.quantity;
+    
+//     // Đảm bảo lấy đúng name từ productId đã populate
+//     orderItems.push({
+//       productId: variant.productId._id,
+//       variantId: variant._id,
+//       name: variant.productId?.name || "Sản phẩm chưa cập nhật tên",
+//       image: variant.image,
+//       sku: variant.sku,
+//       price: variant.price,
+//       quantity: item.quantity,
+//     });
+//   }
+
+//   // BƯỚC 4: Tạo Order (KHÔNG CẦN TÍNH TOÁN, CHỈ GÁN VÀO)
+//   // Nếu bạn vẫn muốn Backend kiểm tra nhanh một lần nữa:
+//   let discount = 0;
+//   if (voucherId) {
+//     const voucher = await Voucher.findById(voucherId);
+//     if (!voucher) throw new Error("Mã không tồn tại");
+//     // Lấy lại logic tính tiền từ Voucher
+//     discount = voucher.type === 'percentage' ? (subTotal * voucher.value / 100) : voucher.value;
+//   }
+
+//   // 4. Tạo Order
+//   const order = await Order.create({
+//     userId,
+//     receiverName, receiverPhone, receiverEmail,
+//     province, ward, address,
+//     subtotal: subTotal,
+//     totalPrice: subTotal,
+//     paymentMethod: paymentMethod || "cod",
+//     status: "pending",
+//     paymentStatus: "unpaid",
+//     voucherId: voucherId || null,
+//     discount: discount,
+//     orderCode: "ORD-" + Date.now(),
+//   });
+
+//   // 5. Tạo OrderDetail
+//   const orderDetails = orderItems.map((item) => ({ 
+//     ...item, 
+//     orderId: order._id 
+//   }));
+//   await OrderDetail.insertMany(orderDetails);
+
+//   // 6. Xóa giỏ hàng
+//   // await Cart.deleteMany({ userId });
+
+//   return {
+//     ...order.toObject(),
+//     orderId: order._id 
+//   };
+// };
+
+export const createOrderFromCart = async (userId, orderData) => {
+  const { 
+    receiverName, 
+    receiverPhone, 
+    receiverEmail, 
+    province, 
+    ward, 
+    address, 
+    paymentMethod, 
+    voucherId,
+    cartItems: clientCartItems, // 👈 Nhận thêm cartItems nếu được truyền từ frontend (dùng cho luồng Mua ngay)
+    status = "pending"          // Cho phép nhận status (mặc định là pending hoặc draft)
+  } = orderData;
+  
+  let cartItems = [];
+
+  // 1. Kiểm tra xem client có truyền trực tiếp danh sách sản phẩm lên không (Luồng Mua ngay)
+  if (clientCartItems && clientCartItems.length > 0) {
+    // Nếu truyền lên dạng mảng các item từ sessionStorage/buyNow
+    // Ta map lại cấu trúc để đồng nhất với dữ liệu lấy từ DB Cart
+    cartItems = clientCartItems.map(item => ({
+      variantId: item.variantId || item._id,
+      quantity: item.quantity,
+      // Nếu variantId đã được populate sẵn hoặc cần fetch lại từ DB để đảm bảo giá chuẩn
+    }));
+  } else {
+    // 2. Nếu không truyền, lấy từ giỏ hàng trong DB như cũ (Luồng Giỏ hàng bình thường)
+    const dbCartItems = await Cart.find({ userId }).populate({
+      path: "variantId",
+      populate: { path: "productId", select: "name" }
+    });
+    cartItems = dbCartItems;
+  }
+
+  if (!cartItems.length) throw new Error("Giỏ hàng trống hoặc không có sản phẩm");
 
   let subTotal = 0;
   const orderItems = [];
 
-  // 3. Reserve stock & Build orderItems
+  // 3. Xử lý từng sản phẩm (Lấy thông tin từ ProductVariant để đảm bảo giá chính xác)
   for (const item of cartItems) {
-    const variant = item.variantId;
+    // Hỗ trợ lấy variantId dù là từ DB hay từ client gửi lên
+    const variantId = item.variantId?._id || item.variantId;
+    const variant = await ProductVariant.findById(variantId).populate("productId", "name");
     
-    // Reserve stock từng item
-    await inventoryService.reserveStock(variant._id, item.quantity);
+    if (!variant) throw new Error("Không tìm thấy biến thể sản phẩm");
 
-    subTotal += variant.price * item.quantity;
+    const quantity = item.quantity;
+
+    // Validate tồn kho nếu đơn không phải là draft tạo nháp ban đầu
+    if (status !== 'draft') {
+      await inventoryService.reserveStock(variant._id, quantity);
+    }
+
+    subTotal += variant.price * quantity;
     
-    // Đảm bảo lấy đúng name từ productId đã populate
     orderItems.push({
-      productId: variant.productId._id,
+      productId: variant.productId?._id || variant.productId,
       variantId: variant._id,
-      name: variant.productId?.name || "Sản phẩm chưa cập nhật tên",
+      name: variant.productId?.name || "Sản phẩm",
       image: variant.image,
       sku: variant.sku,
       price: variant.price,
-      quantity: item.quantity,
+      quantity: quantity,
     });
   }
 
-  // BƯỚC 4: Tạo Order (KHÔNG CẦN TÍNH TOÁN, CHỈ GÁN VÀO)
-  // Nếu bạn vẫn muốn Backend kiểm tra nhanh một lần nữa:
+  // 4. Tính toán Voucher (nếu có)
   let discount = 0;
   if (voucherId) {
     const voucher = await Voucher.findById(voucherId);
-    if (!voucher) throw new Error("Mã không tồn tại");
-    // Lấy lại logic tính tiền từ Voucher
+    if (!voucher) throw new Error("Mã giảm giá không tồn tại");
     discount = voucher.type === 'percentage' ? (subTotal * voucher.value / 100) : voucher.value;
   }
 
-  // 4. Tạo Order
+  const totalPrice = Math.max(0, subTotal - discount);
+
+  // 5. Tạo Order vào Database
   const order = await Order.create({
     userId,
-    receiverName, receiverPhone, receiverEmail,
-    province, ward, address,
+    receiverName: receiverName || "",
+    receiverPhone: receiverPhone || "",
+    receiverEmail: receiverEmail || "",
+    province: province || "",
+    ward: ward || "",
+    address: address || "",
     subtotal: subTotal,
-    totalPrice: subTotal,
+    totalPrice: totalPrice,
     paymentMethod: paymentMethod || "cod",
-    status: "pending",
+    status: status, // Có thể là 'draft' hoặc 'pending'
     paymentStatus: "unpaid",
     voucherId: voucherId || null,
     discount: discount,
     orderCode: "ORD-" + Date.now(),
   });
 
-  // 5. Tạo OrderDetail
+  // 6. Tạo OrderDetail tương ứng với các sản phẩm thực tế của đơn hàng đó
   const orderDetails = orderItems.map((item) => ({ 
     ...item, 
     orderId: order._id 
   }));
   await OrderDetail.insertMany(orderDetails);
 
-  // 6. Xóa giỏ hàng
-  // await Cart.deleteMany({ userId });
+  // 7. Xóa giỏ hàng trong DB (chỉ xóa nếu không phải luồng mua ngay hoặc tùy logic của bạn)
+  // Nếu là mua từ giỏ hàng chuẩn thì mới xóa giỏ hàng:
+  if (!clientCartItems) {
+    await Cart.deleteMany({ userId });
+  }
 
   return {
     ...order.toObject(),
