@@ -710,12 +710,11 @@ export const updateOrder = async (orderId, updateData) => {
   }
 
   // 3. Chỉ cho phép cập nhật nếu đơn hàng đang ở trạng thái 'draft' hoặc 'pending'
-  // (Đảm bảo không cập nhật các đơn hàng đã hủy hoặc đã giao thành công)
   if (order.status !== 'draft' && order.status !== 'pending') {
     throw new Error("Không thể cập nhật đơn hàng ở trạng thái hiện tại");
   }
 
-  // 4. Các trường được phép cập nhật
+  // 4. Các trường được phép cập nhật (👉 Bổ sung 'status' vào đây)
   const allowedUpdates = [
     'receiverName', 
     'receiverPhone', 
@@ -723,7 +722,11 @@ export const updateOrder = async (orderId, updateData) => {
     'province', 
     'ward', 
     'address', 
-    'paymentMethod'
+    'paymentMethod',
+    'status',       // Cho phép cập nhật trạng thái từ 'draft' sang 'pending'
+    'voucherId',
+    'discount',
+    'totalPrice'
   ];
 
   // 5. Cập nhật dữ liệu
