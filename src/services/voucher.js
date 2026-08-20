@@ -111,12 +111,6 @@ export const validateVoucher = async (voucherCode, orderId, userId) => {
   }
 
   const order = await Order.findById(orderId);
-console.log("===== TEST VOUCHER =====");
-console.log("Order ID:", orderId);
-console.log("Order status:", order?.status);
-console.log("Payment status:", order?.paymentStatus);
-console.log("Order total:", order?.totalPrice);
-console.log("========================");
   if (order.status !== "unpaid") {
     throw new Error("Chỉ áp dụng voucher cho đơn chưa thanh toán");
   }
@@ -133,11 +127,6 @@ console.log("========================");
 
 export const applyVoucher = async (voucherCode, orderId, userId) => {
   const order = await Order.findById(orderId);
-  console.log("===== APPLY VOUCHER =====");
-console.log("Order ID:", orderId);
-console.log("Status:", order?.status);
-console.log("PaymentStatus:", order?.paymentStatus);
-console.log("========================");
 
   if (!order) {
     throw new Error("Đơn hàng không tồn tại");
