@@ -656,7 +656,7 @@ export const getAllOrders = async (query) => {
       { receiverEmail: { $regex: cleanSearch, $options: 'i' } }
     ];
 
-    // Chỉ kiểm tra ID nếu là 24 ký tự chuẩn
+    // Chỉ kiểm tra ID nếu là 24 ký tự juẩn
     if (/^[0-9a-fA-F]{24}$/.test(cleanSearch)) {
       match.$or.push({ _id: new mongoose.Types.ObjectId(cleanSearch) });
     }
