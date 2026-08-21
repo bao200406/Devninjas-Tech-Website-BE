@@ -111,8 +111,7 @@ export const validateVoucher = async (voucherCode, orderId, userId) => {
   }
 
   const order = await Order.findById(orderId);
-
-  if (order.status !== "pending") {
+  if (order.status !== "unpaid") {
     throw new Error("Chỉ áp dụng voucher cho đơn chưa thanh toán");
   }
 
@@ -133,7 +132,7 @@ export const applyVoucher = async (voucherCode, orderId, userId) => {
     throw new Error("Đơn hàng không tồn tại");
   }
 
-  if (order.status !== "pending") {
+  if (order.status !== "unpaid") {
     throw new Error("Chỉ áp dụng voucher cho đơn chưa thanh toán");
   }
 
