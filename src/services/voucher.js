@@ -111,7 +111,7 @@ export const validateVoucher = async (voucherCode, orderId, userId) => {
   }
 
   const order = await Order.findById(orderId);
-  if (order.status !== "unpaid") {
+  if (order.paymentStatus !== "unpaid") {
     throw new Error("Chỉ áp dụng voucher cho đơn chưa thanh toán");
   }
 
@@ -130,10 +130,6 @@ export const applyVoucher = async (voucherCode, orderId, userId) => {
 
   if (!order) {
     throw new Error("Đơn hàng không tồn tại");
-  }
-
-  if (order.status !== "unpaid") {
-    throw new Error("Chỉ áp dụng voucher cho đơn chưa thanh toán");
   }
 
   if (order.voucherId) {
@@ -193,7 +189,7 @@ export const reverseVoucher = async (voucherId, orderId) => {
     throw new Error("Order không sử dụng voucher này");
   }
 
-  if (order.status === "paid") {
+  if (order.paymentStatus === "paid") {
     throw new Error("Đơn hàng đã thanh toán, không thể rollback voucher");
   }
 
