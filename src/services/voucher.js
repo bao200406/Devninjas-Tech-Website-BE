@@ -91,7 +91,7 @@ export const validateVoucher = async (voucherCode, orderId, userId) => {
       throw new Error("Bạn đã sử dụng hết số lượt của voucher này");
   }
 
-  // 2. Các kiểm tra cơ bản về trạng thái voucher
+  // 2. Các kiểm tra cơ bản về trạng thái của voucher
   if (!voucher.isActive) {
     throw new Error("Voucher hiện không hoạt động");
   }
